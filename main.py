@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+
 import model
+import object_store
 
 api = FastAPI()
 api.add_middleware(
@@ -25,3 +28,13 @@ def object_index(object_id, query=None):
         "tickets": model.get_object_tickets(object_id),
         "size": model.get_object_size(object_id),
     }
+
+@api.get("/{object_id}/stream")
+async def object_stream(object_id):
+    return StreamingResponse(
+        object_store.stream(object_id),
+        headers={
+            "Content-Disposition": f"attachment; filename={object_id}", # TODO: Support object names
+            "Content-Type": "application/octet-stream", # TODO: Support mimetypes
+        },
+    )
