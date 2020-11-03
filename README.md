@@ -18,3 +18,14 @@ The server listens on port `8000` by default.
 # API Documentation
 
 Once the server has been started, docs are available at http://localhost:8000/docs
+
+# Usage
+
+With the API up, clients can create object store allocations using
+
+```
+curl -X POST http://$apiUrl -d @somefile
+{
+    "objectId": "Some Object ID",
+}
+```
