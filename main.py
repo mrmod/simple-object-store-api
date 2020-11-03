@@ -1,6 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+
+from typing import Optional
+import socket
+import os
 
 import model
 import object_store
@@ -13,6 +17,30 @@ api.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# S3 API
+# Size of object tags in bytes
+OBJECT_ID_SIZE = 8
+SOS_DATAPUTTER_ROUTER=("localhost", 5001)
+CONTENT_LENGTH_HEADER_SIZE = 8
+@api.post("/")
+async def object_create(bytestream: bytes = File(...), content_length: Optional[str] = Header(None)):
+    print(f"ContentLength: {content_length} or {len(bytestream)}")
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(SOS_DATAPUTTER_ROUTER)
+    print(f"Sending {len(bytestream)} bytes")
+    s.send(len(bytestream).to_bytes(CONTENT_LENGTH_HEADER_SIZE, 'big'))
+    s.send(bytestream)
+    print(f"Sent {len(bytestream)} bytes")
+    object_id = s.recv(OBJECT_ID_SIZE)
+    print(f"Created {object_id}")
+    s.close()
+
+    return {
+        "objectId": object_id,
+    }
+
+# END S3 API
 
 @api.get("/")
 def index():
