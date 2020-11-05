@@ -9,7 +9,6 @@ def list_objects():
     return redis.smembers("objects")
 
 def get_ticket_count(object_id):
-    print(f"TICKET COUNT FOR {object_id}")
     return redis.get(f"/objects/{object_id}/ticketCounter")
 
 def get_object_size(object_id):
@@ -20,3 +19,9 @@ def get_object_tickets(object_id):
 
 def get_object_nodes(object_id):
     return redis.smembers(f"objectNodes/{object_id}")
+
+def set_content_type(object_id, content_type):
+    return redis.set(f"/objects/{object_id}/contentType", content_type)
+
+def get_content_type(object_id):
+    return redis.get(f"/objects/{object_id}/contentType")

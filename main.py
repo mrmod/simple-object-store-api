@@ -24,8 +24,13 @@ OBJECT_ID_SIZE = 8
 SOS_DATAPUTTER_ROUTER=("localhost", 5001)
 CONTENT_LENGTH_HEADER_SIZE = 8
 @api.post("/")
-async def object_create(bytestream: bytes = File(...), content_length: Optional[str] = Header(None)):
+async def object_create(
+    bytestream: bytes = File(...),
+    content_length: Optional[str] = Header(None),
+    x_sos_content_type: Optional[str] = Header(None),
+    ):
     print(f"ContentLength: {content_length} or {len(bytestream)}")
+    print(f"ContentType: {x_sos_content_type}")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(SOS_DATAPUTTER_ROUTER)
     print(f"Sending {len(bytestream)} bytes")
@@ -36,6 +41,10 @@ async def object_create(bytestream: bytes = File(...), content_length: Optional[
     print(f"Created {object_id}")
     s.close()
 
+    model.set_content_type(
+        object_id.decode("utf-8"),
+        x_sos_content_type,
+    )
     return {
         "objectId": object_id,
     }
@@ -55,6 +64,7 @@ def object_index(object_id, query=None):
         "nodes": model.get_object_nodes(object_id),
         "tickets": model.get_object_tickets(object_id),
         "size": model.get_object_size(object_id),
+        "contentType": model.get_content_type(object_id),
     }
 
 @api.get("/{object_id}/stream")
