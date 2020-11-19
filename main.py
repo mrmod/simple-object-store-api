@@ -8,6 +8,7 @@ import os
 
 import model
 import object_store
+import s3_api
 
 api = FastAPI()
 api.add_middleware(
@@ -19,6 +20,7 @@ api.add_middleware(
 )
 
 # S3 API
+api.include_router(s3_api.api)
 # Size of object tags in bytes
 OBJECT_ID_SIZE = 8
 SOS_DATAPUTTER_ROUTER=("localhost", 5001)
@@ -51,13 +53,13 @@ async def object_create(
 
 # END S3 API
 
-@api.get("/")
+@api.get("/api")
 def index():
     return {
         "objects": model.list_objects(),
     }
 
-@api.get("/{object_id}")
+@api.get("/api/{object_id}")
 def object_index(object_id, query=None):
     return {
         "ticketCount": model.get_ticket_count(object_id),
@@ -67,7 +69,7 @@ def object_index(object_id, query=None):
         "contentType": model.get_content_type(object_id),
     }
 
-@api.get("/{object_id}/stream")
+@api.get("/api/{object_id}/stream")
 async def object_stream(object_id):
     return StreamingResponse(
         object_store.stream(object_id),
