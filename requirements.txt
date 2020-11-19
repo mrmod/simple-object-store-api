@@ -2,3 +2,5 @@ fastapi
 uvicorn
 requests
 python-multipart
+dict2xml
+boto3
