@@ -8,10 +8,12 @@ from fastapi import APIRouter, Header, Response, File, Request
 from typing import Optional, Dict
 import model
 import serializer
+import socket
+
 api = APIRouter()
 
 XML_PRAGMA = '<?xml version="1.0" encoding="UTF-8"?>\n'
-
+XML_HEADERS = {"Content-Type": "application/xml"}
 def simple_aws_account_id(authz_header: Header):
     try:
         (credential, signed_headers, signature) = authz_header.split(",")
@@ -28,6 +30,28 @@ def simple_aws_account_id(authz_header: Header):
 DEFAULT_BUCKET_OWNER = "default-bucket-owner"
 BUCKET_NAME_EXP = r'^[a-z0-9]+(.?[-a-z0-9]+)*$'
 BUCKET_NAME_RANGE = (3, 63)
+
+@api.get("/")
+async def list_buckets(authorization: Optional[str] = Header(None)):
+    if authorization is None:
+            return Response(
+                dict2xml({
+                    "Error": {
+                        "Code": "AccessDenied",
+                        "Message": f"Access to s3://{bucket} denied"
+                    }
+                }),
+                status_code=403,
+                headers=XML_HEADERS,
+            )
+    account_id = simple_aws_account_id(authorization)
+    buckets = model.list_buckets(account_id)
+    owner = model.get_bucket_owner(account_id)
+    return Response(
+        serializer.list_buckets(buckets, owner),
+        headers=XML_HEADERS,
+    )
+
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
 # CreateBucket:
 # aws s3 mb s3://$BUCKET
@@ -77,6 +101,7 @@ async def create_bucket(
     account_id = simple_aws_account_id(authorization)
     try:
         result = model.create_bucket(bucket, account_id)
+        model.set_bucket_creation_date(bucket, account_id)
         # result == 1 ? new : existed
         return Response(headers={"Location": f"/{bucket}"})
     except Exception as e:
@@ -90,14 +115,6 @@ async def create_bucket(
             }
         })
 
-# Creates S3 Object metadata for a single object
-def bucket_object(object_id: str, account_id: str) -> Dict:
-    return {
-        "display_name": account_id,
-        "id": account_id,
-        "size": 1000,
-        "key": object_id,
-    }
 
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
 # ListBucketV2: List objects in a bucket
@@ -132,10 +149,10 @@ async def get_bucket(bucket: str,
     try:
         if model.can_read_bucket(bucket, account_id):
             bucket_objects = model.get_bucket(bucket, account_id)
-
-            body = serializer.get_bucket(
+            print("BucketObjects:", bucket_objects)
+            body = serializer.list_bucket_objects(
                 bucket,
-                [bucket_object(o, account_id) for o in bucket_objects],
+                bucket_objects,
                 config=config,
             )
             return Response(
@@ -160,15 +177,21 @@ async def get_bucket(bucket: str,
             }
         })
 
-# @api.put("/{bucket}/{key}")
-async def put_object(bucket: str, key: str, bytestream: bytes = File(...),
+OBJECT_ID_SIZE = 8
+SOS_DATAPUTTER_ROUTER=("localhost", 5001)
+CONTENT_LENGTH_HEADER_SIZE = 8
+
+@api.put("/{bucket}/{key}")
+async def put_object(bucket: str, key: str, 
+    req: Request,
+    # body: bytes = File(...),
     authorization: Optional[str] = Header(None),
     x_amz_acl: Optional[str] = Header(None),
     cache_control: Optional[str] = Header(None),
     content_disposition: Optional[str] = Header(None),
     content_encoding: Optional[str] = Header(None),
     content_language: Optional[str] = Header(None),
-    content_length: Optional[str] = Header(None),
+    content_length: Optional[int] = Header(None),
     content_md5: Optional[str] = Header(None),
     content_type: Optional[str] = Header(None),
     expires: Optional[str] = Header(None),
@@ -190,13 +213,41 @@ async def put_object(bucket: str, key: str, bytestream: bytes = File(...),
     x_amz_object_lock_retain_until_date: Optional[str] = Header(None),
     x_amz_object_lock_legal_hold: Optional[str] = Header(None),
     x_amz_expected_bucket_owner: Optional[str] = Header(None)):
+        print(f"[{content_length}] PutObject /{bucket}/{key}")
+        body = await req.body()
         # No headers are used 😎
         account_id = simple_aws_account_id(authorization)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(SOS_DATAPUTTER_ROUTER)
-            s.send(len(bytestream).to_bytes(CONTENT_LENGTH_HEADER_SIZE, 'big'))
-            s.send(bytestream)
+        if model.is_bucket_owner(bucket, account_id):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(SOS_DATAPUTTER_ROUTER)
+                s.send(
+                    content_length.to_bytes(CONTENT_LENGTH_HEADER_SIZE, 'big'),
+                )
+                s.send(body)
 
-            object_id = s.recv(OBJECT_ID_SIZE)
-        if object_id is None:
-            return "Error:"
+                object_id = s.recv(OBJECT_ID_SIZE)
+            if object_id is None:
+                return Response(
+                    dict2xml({
+                        "Error": {
+                            "Code": "InternalError",
+                            "Message": f"Unable to create object ID for {bucket}/{key}"
+                        }
+                    }),
+                    headers=XML_HEADERS,
+                    status_code=503,
+                )
+            else:
+                model.add_key_to_bucket(bucket, key, account_id)
+                model.set_key_size(bucket, key, content_length, account_id)
+                model.add_object_to_key(bucket, key, object_id, account_id)
+                return Response()
+        else:
+            return Response(
+                dict2xml({
+                    "Error": {
+                        "Code": "AccessDenied",
+                        "Message": f"Access denied for putObject to {bucket}/{key} by {account_id}"
+                    }
+                })
+            )

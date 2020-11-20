@@ -15,7 +15,33 @@ def bucket_object(obj: Dict) -> Dict:
         "StorageClass": "standard",
     }
 
-def get_bucket(
+def bucket_metadata(bucket: Dict) -> Dict:
+    print("BucketMetadata:", bucket)
+    return {
+        "Name": bucket.get("name"),
+        "CreationDate": bucket.get("creation_date"),
+    }
+
+def bucket_owner(owner: Dict) -> Dict:
+    return {
+        "DisplayName": owner.get("display_name"),
+        "ID": owner.get("id"),
+    }
+
+# https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListBuckets.html
+# listBuckets
+def list_buckets(buckets: List, owner: Dict, config: Optional[Dict] = {}) -> str:
+    list_buckets_response = {
+        "ListAllMyBucketsResult": {
+            "Buckets": [bucket_metadata(bucket) for bucket in buckets],
+            "Owner": bucket_owner(owner),
+        }
+    }
+    return dict2xml(list_buckets_response)
+
+# https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
+# ListObjectsV2 Response
+def list_bucket_objects(
     bucket: str,
     objects: List,
     config: Optional[Dict] = {}) -> str:
@@ -41,5 +67,6 @@ def get_bucket(
         }
     }
     if len(objects) > 0:
-        list_bucket_v2_response['Contents'] = [bucket_object(o) for o in objects]
+        contents = [bucket_object(o) for o in objects]
+        list_bucket_v2_response['ListBucketResult']['Contents'] = contents
     return dict2xml(list_bucket_v2_response)
