@@ -1,37 +1,38 @@
-import dict2xml
+from dict2xml import dict2xml
 from typing import List, Dict, Optional
 from datetime import datetime
 
-def _bucket_object(obj: Dict) -> Dict:
+def bucket_object(obj: Dict) -> Dict:
     return {
-        "ETag": "e-tag",
+        "ETag": "eTag",
         "Key": obj.get("key"),
         "LastModified": str(datetime.now()),
         "Owner": {
             "DisplayName": obj.get("display_name"),
-            "ID": obj.get("id"),
-            "Size": obj.get("size"),
-            "StorageClass": "standard",
-        }
+            "ID": obj.get("id")
+        },
+        "Size": obj.get("size"),
+        "StorageClass": "standard",
     }
 
 def get_bucket(
     bucket: str,
     objects: List,
     config: Optional[Dict] = {}) -> str:
-    {
+    list_bucket_v2_response = {
         "ListBucketResult": {
             '@': { "xmlns": 'http://doc.s3.amazonaws.com/2006-03-01/' },
-            "IsTruncated": True,
-            "Contents": [_bucket_object(obj) for obj in objects],
+            "IsTruncated": False,
+            "KeyCount": len(objects),
+            "MaxKeys": len(objects),
             "Name": bucket,
-            "Prefix": config.get("prefix") or "/",
+            "Prefix": config.get("prefix") or "",
             "Delimiter": config.get("delimiter") or "",
             "MaxKeys": config.get("max-keys") or 1000,
-            "CommonPrefixes": [
-            {"Prefix": "CommonPrefix"},
-            ],
-
+            # TODO: Support delimiter query parameter
+            # "CommonPrefixes": [
+            #     {"Prefix": "CommonPrefix"},
+            # ],
             "EncodingType": "UTF-8",
             "KeyCount": len(objects),
             "ContinuationToken": config.get("continuation-token") or "",
@@ -39,3 +40,6 @@ def get_bucket(
             "StartAfter": config.get("start-after") or "",
         }
     }
+    if len(objects) > 0:
+        list_bucket_v2_response['Contents'] = [bucket_object(o) for o in objects]
+    return dict2xml(list_bucket_v2_response)

@@ -44,7 +44,7 @@ def get_bucket(bucket, account_id) -> List:
 
 def is_bucket_owner(bucket, account_id):
     key = f"/accounts/{account_id}/buckets"
-    return redis.sismember(key) == 1
+    return redis.sismember(key, bucket) == 1
 
 # Capability checks
 def can_write_bucket(bucket, acount_id):
