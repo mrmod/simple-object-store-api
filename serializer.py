@@ -2,18 +2,17 @@ from dict2xml import dict2xml
 from typing import List, Dict, Optional
 from datetime import datetime
 
+
 def bucket_object(obj: Dict) -> Dict:
     return {
         "ETag": "eTag",
         "Key": obj.get("key"),
         "LastModified": str(datetime.now()),
-        "Owner": {
-            "DisplayName": obj.get("display_name"),
-            "ID": obj.get("id")
-        },
+        "Owner": {"DisplayName": obj.get("display_name"), "ID": obj.get("id")},
         "Size": obj.get("size"),
         "StorageClass": "standard",
     }
+
 
 def bucket_metadata(bucket: Dict) -> Dict:
     print("BucketMetadata:", bucket)
@@ -22,11 +21,13 @@ def bucket_metadata(bucket: Dict) -> Dict:
         "CreationDate": bucket.get("creation_date"),
     }
 
+
 def bucket_owner(owner: Dict) -> Dict:
     return {
         "DisplayName": owner.get("display_name"),
         "ID": owner.get("id"),
     }
+
 
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListBuckets.html
 # listBuckets
@@ -39,15 +40,13 @@ def list_buckets(buckets: List, owner: Dict, config: Optional[Dict] = {}) -> str
     }
     return dict2xml(list_buckets_response)
 
+
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
 # ListObjectsV2 Response
-def list_bucket_objects(
-    bucket: str,
-    objects: List,
-    config: Optional[Dict] = {}) -> str:
+def list_bucket_objects(bucket: str, objects: List, config: Optional[Dict] = {}) -> str:
     list_bucket_v2_response = {
         "ListBucketResult": {
-            '@': { "xmlns": 'http://doc.s3.amazonaws.com/2006-03-01/' },
+            "@": {"xmlns": "http://doc.s3.amazonaws.com/2006-03-01/"},
             "IsTruncated": False,
             "KeyCount": len(objects),
             "MaxKeys": len(objects),
@@ -68,5 +67,5 @@ def list_bucket_objects(
     }
     if len(objects) > 0:
         contents = [bucket_object(o) for o in objects]
-        list_bucket_v2_response['ListBucketResult']['Contents'] = contents
+        list_bucket_v2_response["ListBucketResult"]["Contents"] = contents
     return dict2xml(list_bucket_v2_response)
