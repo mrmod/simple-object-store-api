@@ -15,10 +15,11 @@ def bucket_object(obj: Dict) -> Dict:
 
 
 def bucket_metadata(bucket: Dict) -> Dict:
-    print("BucketMetadata:", bucket)
     return {
-        "Name": bucket.get("name"),
-        "CreationDate": bucket.get("creation_date"),
+        "Bucket": {
+            "Name": bucket.get("name"),
+            "CreationDate": bucket.get("creation_date"),
+        },
     }
 
 
@@ -32,12 +33,14 @@ def bucket_owner(owner: Dict) -> Dict:
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListBuckets.html
 # listBuckets
 def list_buckets(buckets: List, owner: Dict, config: Optional[Dict] = {}) -> str:
+    bucket_data = [bucket_metadata(bucket) for bucket in buckets]
     list_buckets_response = {
         "ListAllMyBucketsResult": {
-            "Buckets": [bucket_metadata(bucket) for bucket in buckets],
+            "Buckets": bucket_data,
             "Owner": bucket_owner(owner),
         }
     }
+    print("ListBucketResponse", list_buckets_response)
     return dict2xml(list_buckets_response)
 
 

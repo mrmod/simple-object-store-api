@@ -2,6 +2,7 @@
 # https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
 
 import re
+import traceback
 from dict2xml import dict2xml
 
 from fastapi import APIRouter, Header, Response, File, Request, Depends
@@ -11,6 +12,7 @@ import model
 import serializer
 import socket
 import os
+import object_store as store
 
 api = APIRouter()
 
@@ -163,24 +165,32 @@ async def get_bucket(
         "x-amz-expected-bucket-owner": x_amz_expected_bucket_owner,
         "x-amz-request-payer": x_amz_request_payer,
     }
+
     try:
-        if model.can_read_bucket(bucket, account_id):
+        if model.is_existing_bucket(bucket, account_id) and model.can_read_bucket(
+            bucket, account_id
+        ):
             bucket_objects = model.get_bucket(bucket, account_id)
             body = serializer.list_bucket_objects(
                 bucket, bucket_objects, config=config,
             )
-            return Response(body, headers={"Content-Type": "application/xml"},)
+            return Response(body, headers=XML_HEADERS)
         else:
-            raise S3ApiException(
-                dict2xml(
-                    {
-                        "Error": {
-                            "Code": "AccessDenied",
-                            "Message": f"Access to s3://{bucket} denied",
+            if model.is_existing_bucket(bucket, account_id):
+                raise S3ApiException(
+                    dict2xml(
+                        {
+                            "Error": {
+                                "Code": "AccessDenied",
+                                "Message": f"Access to s3://{bucket} denied",
+                            }
                         }
-                    }
-                ),
-                403,
+                    ),
+                    403,
+                )
+            return Response(
+                serializer.list_bucket_objects(bucket, [], config=config),
+                headers=XML_HEADERS,
             )
     except Exception as e:
         raise S3ApiException(
@@ -196,14 +206,122 @@ async def get_bucket(
         )
 
 
-OBJECT_ID_SIZE = 8
-SOS_DATAPUTTER_ROUTER = (
-    os.environ.get("SOS_DATAPUTTER_ROUTER_HOST") or "localhost",
-    5001,
-)
-CONTENT_LENGTH_HEADER_SIZE = 8
+# https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html
+# DeleteObject
+#
+@api.delete("/{bucket}/{key}", dependencies=[Depends(is_authorizable)])
+async def delete_object(
+    bucket: str,
+    key: str,
+    req: Request,
+    version_id: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+    x_amz_mfa: Optional[str] = Header(None),
+    x_amz_request_payer: Optional[str] = Header(None),
+    x_amz_bypass_governance_retention: Optional[bool] = Header(None),
+    x_amz_expected_bucket_owner: Optional[str] = Header(None),
+):
+    account_id = simple_aws_account_id(authorization)
+    has_errors = False
+    if model.is_bucket_owner(bucket, account_id):
+        if model.is_existing_bucket(bucket, account_id) and model.is_existing_key(
+            bucket, key, account_id
+        ):
+            for object_id in model.list_objects_of_key(bucket, key, account_id):
+                # Send DataPutter "Delete ObjectId"
+                response = await store.delete(object_id.decode("UTF-8"))
+                print(f"Delete {bucket}/{key} yielded {response}")
+                if response.decode("UTF-8") == object_id.decode("UTF-8"):
+                    model.delete_key_object(
+                        object_id.decode("UTF-8"), bucket, key, account_id,
+                    )
+                else:
+                    has_errors = True
+        else:
+            if model.is_existing_bucket(bucket, account_id):
+                raise S3ApiException(
+                    dict2xml(
+                        {
+                            "Error": {
+                                "Code": "NoSuchKey",
+                                "Message": f"s3://{bucket}/{key} does not exist",
+                            }
+                        }
+                    ),
+                    404,
+                )
+            else:
+                raise S3ApiException(
+                    dict2xml(
+                        {
+                            "Error": {
+                                "Code": "NoSuchBucket",
+                                "Message": f"s3://{bucket} does not exist",
+                            }
+                        }
+                    ),
+                    404,
+                )
+        if not has_errors:
+            model.delete_key(bucket, key, account_id)
+            return Response(status_code=200)
+        print(f"Error deleting object {object_id.decode('UTF-8')}")
+        return Response(status_code=503)
 
 
+@api.delete("/{bucket}", dependencies=[Depends(is_authorizable)])
+async def delete_bucket(
+    bucket: str,
+    authorization: Optional[str] = Header(None),
+    x_amz_expected_bucket_owner: Optional[str] = None,
+):
+    account_id = simple_aws_account_id(authorization)
+    if model.is_existing_bucket(bucket, account_id):
+        if model.is_bucket_owner(bucket, account_id) and model.is_bucket_empty(
+            bucket, account_id
+        ):
+            print(f"Deleting bucket {bucket}")
+            if model.delete_bucket(bucket, account_id):
+                return Response(
+                    headers={
+                        "x-amz-id-2": "OpaqueString",
+                        "x-amz-request-id": "OpaqueRequestId",
+                    }
+                )
+            else:
+                raise S3ApiException(
+                    dict2xml(
+                        {
+                            "Error": {
+                                "Code": "InternalError",
+                                "Message": f"Failed to delete bucket {bucket}",
+                            }
+                        }
+                    ),
+                    503,
+                )
+        else:
+            raise S3ApiException(
+                dict2xml(
+                    {"Error": {"Code": "AccessDenied", "Message": f"Access denied",}}
+                ),
+                403,
+            )
+    raise S3ApiException(
+        dict2xml(
+            {
+                "Error": {
+                    "Code": "NoSuchBucket",
+                    "Message": f"Bucket {bucket} does not exist",
+                }
+            }
+        ),
+        404,
+    )
+
+
+# https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
+# PutObject
 @api.put("/{bucket}/{key}", dependencies=[Depends(is_authorizable)])
 async def put_object(
     bucket: str,
@@ -243,12 +361,8 @@ async def put_object(
     # No headers are used 😎
     account_id = simple_aws_account_id(authorization)
     if model.is_bucket_owner(bucket, account_id):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(SOS_DATAPUTTER_ROUTER)
-            s.send(content_length.to_bytes(CONTENT_LENGTH_HEADER_SIZE, "big"),)
-            s.send(body)
+        object_id = await store.put(body, content_length)
 
-            object_id = s.recv(OBJECT_ID_SIZE)
         if object_id is None:
             raise S3ApiException(
                 dict2xml(

@@ -19,18 +19,30 @@ api.add_middleware(
     allow_headers=["*"],
 )
 
+s3 = FastAPI()
+s3.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # S3 API
-api.include_router(s3_api.api)
+s3.include_router(s3_api.api)
 
-@api.exception_handler(s3_api.S3ApiException)
+
+@s3.exception_handler(s3_api.S3ApiException)
 async def s3_api_exception_handler(req: Request, ex: s3_api.S3ApiException):
     return Response(ex.body, status_code=ex.status_code, headers=s3_api.XML_HEADERS)
 
+
+# API for UI
 @api.get("/api")
 def index():
     return {
         "objects": model.list_objects(),
     }
+
 
 @api.get("/api/{object_id}")
 def object_index(object_id, query=None):
@@ -39,8 +51,9 @@ def object_index(object_id, query=None):
         "nodes": model.get_object_nodes(object_id),
         "tickets": model.get_object_tickets(object_id),
         "size": model.get_object_size(object_id),
-        "contentType": model.get_content_type(object_id),
+        "contentType": model.get_content_type(object_id) or "text/plain",
     }
+
 
 @api.get("/api/{object_id}/stream")
 async def object_stream(object_id):
