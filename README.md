@@ -7,9 +7,10 @@ An HTTP API to list and download objects from the [Simple Object Store](https://
 ```
 pip install -r requirements.txt
 
-# Linux / Mac
-./run-server.sh
 # Windows
+# Start UI APi
+./run-api.bat
+# Start S3 API
 ./run-server.bat
 ```
 
@@ -55,7 +56,6 @@ S3 is used as the guiding principle for the model which extends what is in Redis
 /keys/$ACCOUNT_ID/$BUCKET/$KEY/size 1000
 ```
 
-
 # API Documentation
 
 Once the server has been started, docs are available at http://localhost:8000/docs
@@ -70,3 +70,13 @@ curl -X POST http://$apiUrl -d @somefile
     "objectId": "Some Object ID",
 }
 ```
+
+# Testing
+
+The S3 API compliance with some basic AWS CLI operations can be tested with:
+
+```
+powershell -ExecutionPolicy Bypass -File .\tests\aws_cli_functionality.ps1
+```
+
+This prevents execution restrictions on default Windows configurations from blocking the execution of the test script.
